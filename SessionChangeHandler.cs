@@ -6,6 +6,9 @@ using PInvoke;
 
 namespace Nefarius.Utilities.SessionNotification;
 
+/// <summary>
+///     Provides an event listener for various session change events.
+/// </summary>
 public class SessionChangeHandler : IDisposable
 {
     private const int NOTIFY_FOR_THIS_SESSION = 0;
@@ -27,10 +30,18 @@ public class SessionChangeHandler : IDisposable
 
     private readonly Thread _thread;
 
+    private readonly int _flags;
+
     private IntPtr _windowHandle;
 
-    public SessionChangeHandler()
+    /// <summary>
+    ///     Creates a new session change listener.
+    /// </summary>
+    /// <param name="allSessions">True to listen to all sessions, false to only listen to the current session (default).</param>
+    public SessionChangeHandler(bool allSessions = false)
     {
+        _flags = allSessions ? NOTIFY_FOR_ALL_SESSIONS : NOTIFY_FOR_THIS_SESSION;
+
         _thread = new Thread(Start)
         {
             IsBackground = true
@@ -69,6 +80,12 @@ public class SessionChangeHandler : IDisposable
 
     public event Action<int> SessionUnlock;
 
+    /// <summary>
+    ///     Resolves a username for a given session ID.
+    /// </summary>
+    /// <param name="sessionId">The session ID.</param>
+    /// <param name="prependDomain">True to prepend domain name, false to only return the username.</param>
+    /// <returns>The username.</returns>
     public static string GetUsernameBySessionId(int sessionId, bool prependDomain)
     {
         IntPtr buffer;
@@ -142,7 +159,7 @@ public class SessionChangeHandler : IDisposable
             new IntPtr(-3), IntPtr.Zero, wndClass.hInstance, IntPtr.Zero);
         _windowHandle = windowHandle;
 
-        if (!WTSRegisterSessionNotification(_windowHandle, NOTIFY_FOR_THIS_SESSION))
+        if (!WTSRegisterSessionNotification(_windowHandle, _flags))
             Marshal.ThrowExceptionForHR(Marshal.GetLastWin32Error());
 
         MessagePump();
