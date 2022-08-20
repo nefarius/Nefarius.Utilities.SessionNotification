@@ -28,9 +28,9 @@ public class SessionChangeHandler : IDisposable
 
     private readonly CancellationTokenSource _cancellationTokenSource = new();
 
-    private readonly Thread _thread;
-
     private readonly int _flags;
+
+    private readonly Thread _thread;
 
     private IntPtr _windowHandle;
 
@@ -72,13 +72,50 @@ public class SessionChangeHandler : IDisposable
     [DllImport("WtsApi32.dll")]
     private static extern bool WTSUnRegisterSessionNotification(IntPtr hWnd);
 
+    /// <summary>
+    ///     A session was connected to the console terminal.
+    /// </summary>
+    public event Action<int> ConsoleConnect;
+
+    /// <summary>
+    ///     A session was disconnected from the console terminal.
+    /// </summary>
+    public event Action<int> ConsoleDisconnect;
+
+    /// <summary>
+    ///     A session was connected to the remote terminal.
+    /// </summary>
+    public event Action<int> RemoteConnect;
+
+    /// <summary>
+    ///     A session was disconnected from the remote terminal.
+    /// </summary>
+    public event Action<int> RemoteDisconnect;
+
+    /// <summary>
+    ///     A user has logged on to the session.
+    /// </summary>
     public event Action<int> SessionLogon;
 
+    /// <summary>
+    ///     A user has logged off the session.
+    /// </summary>
     public event Action<int> SessionLogoff;
 
+    /// <summary>
+    ///     A session has been locked.
+    /// </summary>
     public event Action<int> SessionLock;
 
+    /// <summary>
+    ///     A session has been unlocked.
+    /// </summary>
     public event Action<int> SessionUnlock;
+
+    /// <summary>
+    ///     A session has changed its remote controlled status.
+    /// </summary>
+    public event Action<int> SessionRemoteControl;
 
     /// <summary>
     ///     Resolves a username for a given session ID.
@@ -188,6 +225,18 @@ public class SessionChangeHandler : IDisposable
         {
             switch ((int)wParam)
             {
+                case WTS_CONSOLE_CONNECT:
+                    ConsoleConnect?.Invoke((int)lParam);
+                    break;
+                case WTS_CONSOLE_DISCONNECT:
+                    ConsoleDisconnect?.Invoke((int)lParam);
+                    break;
+                case WTS_REMOTE_CONNECT:
+                    RemoteConnect?.Invoke((int)lParam);
+                    break;
+                case WTS_REMOTE_DISCONNECT:
+                    RemoteDisconnect?.Invoke((int)lParam);
+                    break;
                 case WTS_SESSION_LOGON:
                     SessionLogon?.Invoke((int)lParam);
                     break;
@@ -199,6 +248,9 @@ public class SessionChangeHandler : IDisposable
                     break;
                 case WTS_SESSION_UNLOCK:
                     SessionUnlock?.Invoke((int)lParam);
+                    break;
+                case WTS_SESSION_REMOTE_CONTROL:
+                    SessionRemoteControl?.Invoke((int)lParam);
                     break;
             }
 
