@@ -86,7 +86,7 @@ public class SessionChangeHandler : IDisposable
     /// <param name="sessionId">The session ID.</param>
     /// <param name="prependDomain">True to prepend domain name, false to only return the username.</param>
     /// <returns>The username.</returns>
-    public static string GetUsernameBySessionId(int sessionId, bool prependDomain)
+    public static string GetUsernameBySessionId(int sessionId, bool prependDomain = false)
     {
         IntPtr buffer;
         int strLen;
