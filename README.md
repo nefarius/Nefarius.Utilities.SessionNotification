@@ -15,16 +15,16 @@ using Nefarius.Utilities.SessionNotification;
 var sch = new SessionChangeHandler(true);
 
 // session locked event (Win + L)
-sch.SessionLock += i =>
+sch.SessionLock += id =>
 {
-    var username = SessionChangeHandler.GetUsernameBySessionId(i, false);
-    Console.WriteLine($"Session ID {i}, user {username} locked");
+    var username = SessionChangeHandler.GetUsernameBySessionId(id, false);
+    Console.WriteLine($"Session ID {id}, user {username} locked");
 };
 
 // session unlocked event
-sch.SessionUnlock += i =>
+sch.SessionUnlock += id =>
 {
-    var username = SessionChangeHandler.GetUsernameBySessionId(i, false);
-    Console.WriteLine($"Session ID {i}, user {username} unlocked");
+    var username = SessionChangeHandler.GetUsernameBySessionId(id, false);
+    Console.WriteLine($"Session ID {id}, user {username} unlocked");
 };
 ```
