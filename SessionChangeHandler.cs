@@ -2,7 +2,10 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
-using PInvoke;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.System.RemoteDesktop;
+using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace Nefarius.Utilities.SessionNotification;
 
@@ -11,28 +14,13 @@ namespace Nefarius.Utilities.SessionNotification;
 /// </summary>
 public class SessionChangeHandler : IDisposable
 {
-    private const int NOTIFY_FOR_THIS_SESSION = 0;
-    private const int NOTIFY_FOR_ALL_SESSIONS = 1;
-
-    private const int WM_WTSSESSION_CHANGE = 0x2b1;
-
-    private const int WTS_CONSOLE_CONNECT = 0x1; // A session was connected to the console terminal.
-    private const int WTS_CONSOLE_DISCONNECT = 0x2; // A session was disconnected from the console terminal.
-    private const int WTS_REMOTE_CONNECT = 0x3; // A session was connected to the remote terminal.
-    private const int WTS_REMOTE_DISCONNECT = 0x4; // A session was disconnected from the remote terminal.
-    private const int WTS_SESSION_LOGON = 0x5; // A user has logged on to the session.
-    private const int WTS_SESSION_LOGOFF = 0x6; // A user has logged off the session.
-    private const int WTS_SESSION_LOCK = 0x7; // A session has been locked.
-    private const int WTS_SESSION_UNLOCK = 0x8; // A session has been unlocked.
-    private const int WTS_SESSION_REMOTE_CONTROL = 0x9; // A session has changed its remote controlled status.
-
     private readonly CancellationTokenSource _cancellationTokenSource = new();
 
-    private readonly int _flags;
+    private readonly uint _flags;
 
     private readonly Thread _thread;
 
-    private IntPtr _windowHandle;
+    private HWND _windowHandle;
 
     /// <summary>
     ///     Creates a new session change listener.
@@ -40,7 +28,7 @@ public class SessionChangeHandler : IDisposable
     /// <param name="allSessions">True to listen to all sessions, false to only listen to the current session (default).</param>
     public SessionChangeHandler(bool allSessions = false)
     {
-        _flags = allSessions ? NOTIFY_FOR_ALL_SESSIONS : NOTIFY_FOR_THIS_SESSION;
+        _flags = allSessions ? PInvoke.NOTIFY_FOR_ALL_SESSIONS : PInvoke.NOTIFY_FOR_THIS_SESSION;
 
         _thread = new Thread(Start)
         {
@@ -55,22 +43,6 @@ public class SessionChangeHandler : IDisposable
         Dispose(true);
         GC.SuppressFinalize(this);
     }
-
-    [DllImport("Wtsapi32.dll", SetLastError = true)]
-    private static extern bool WTSQuerySessionInformation(IntPtr hServer, int sessionId, WTS_INFO_CLASS wtsInfoClass,
-        out IntPtr ppBuffer, out int pBytesReturned);
-
-    [DllImport("Wtsapi32.dll")]
-    private static extern void WTSFreeMemory(IntPtr pointer);
-
-    [DllImport(nameof(Kernel32), SetLastError = true)]
-    private static extern IntPtr GetModuleHandle(IntPtr lpModuleName);
-
-    [DllImport("WtsApi32.dll")]
-    private static extern bool WTSRegisterSessionNotification(IntPtr hWnd, [MarshalAs(UnmanagedType.U4)] int dwFlags);
-
-    [DllImport("WtsApi32.dll")]
-    private static extern bool WTSUnRegisterSessionNotification(IntPtr hWnd);
 
     /// <summary>
     ///     A session was connected to the console terminal.
@@ -123,22 +95,23 @@ public class SessionChangeHandler : IDisposable
     /// <param name="sessionId">The session ID.</param>
     /// <param name="prependDomain">True to prepend domain name, false to only return the username.</param>
     /// <returns>The username.</returns>
-    public static string GetUsernameBySessionId(int sessionId, bool prependDomain = false)
+    public static unsafe string GetUsernameBySessionId(int sessionId, bool prependDomain = false)
     {
-        IntPtr buffer;
-        int strLen;
         var username = "SYSTEM";
-        if (WTSQuerySessionInformation(IntPtr.Zero, sessionId, WTS_INFO_CLASS.WTSUserName, out buffer, out strLen) &&
+
+        if (PInvoke.WTSQuerySessionInformation(null, (uint)sessionId, WTS_INFO_CLASS.WTSUserName, out var buffer,
+                out var strLen) &&
             strLen > 1)
         {
-            username = Marshal.PtrToStringAnsi(buffer);
-            WTSFreeMemory(buffer);
+            username = new string(buffer);
+            PInvoke.WTSFreeMemory(buffer);
+
             if (prependDomain)
-                if (WTSQuerySessionInformation(IntPtr.Zero, sessionId, WTS_INFO_CLASS.WTSDomainName, out buffer,
+                if (PInvoke.WTSQuerySessionInformation(null, (uint)sessionId, WTS_INFO_CLASS.WTSDomainName, out buffer,
                         out strLen) && strLen > 1)
                 {
-                    username = Marshal.PtrToStringAnsi(buffer) + "\\" + username;
-                    WTSFreeMemory(buffer);
+                    username = new string(buffer) + "\\" + username;
+                    PInvoke.WTSFreeMemory(buffer);
                 }
         }
 
@@ -175,28 +148,39 @@ public class SessionChangeHandler : IDisposable
     private unsafe void Start(object parameter)
     {
         var className = GenerateRandomString(); // random string to avoid conflicts
-        var wndClass = User32.WNDCLASSEX.Create();
+        var windowName = GenerateRandomString();
+        using var hInst = PInvoke.GetModuleHandle((string)null);
 
-        fixed (char* cln = className)
+        var windowClass = new WNDCLASSEXW
         {
-            wndClass.lpszClassName = cln;
+            cbSize = (uint)Marshal.SizeOf<WNDCLASSEXW>(),
+            style = WNDCLASS_STYLES.CS_HREDRAW | WNDCLASS_STYLES.CS_VREDRAW,
+            cbClsExtra = 0,
+            cbWndExtra = 0,
+            hInstance = (HINSTANCE)hInst.DangerousGetHandle(),
+            lpfnWndProc = WndProc
+        };
+
+        fixed (char* pClassName = className)
+        fixed (char* pWindowName = windowName)
+        {
+            windowClass.lpszClassName = pClassName;
+
+            PInvoke.RegisterClassEx(windowClass);
+
+            _windowHandle = PInvoke.CreateWindowEx(
+                0,
+                pClassName,
+                pWindowName,
+                0,
+                0, 0, 0, 0,
+                HWND.Null,
+                HMENU.Null,
+                new HINSTANCE(hInst.DangerousGetHandle())
+            );
         }
 
-        var wndProc = new User32.WndProc(WndProc);
-
-        wndClass.style = User32.ClassStyles.CS_HREDRAW | User32.ClassStyles.CS_VREDRAW;
-        wndClass.lpfnWndProc = wndProc;
-        wndClass.cbClsExtra = 0;
-        wndClass.cbWndExtra = 0;
-        wndClass.hInstance = GetModuleHandle(IntPtr.Zero);
-
-        User32.RegisterClassEx(ref wndClass);
-
-        var windowHandle = User32.CreateWindowEx(0, className, GenerateRandomString(), 0, 0, 0, 0, 0,
-            new IntPtr(-3), IntPtr.Zero, wndClass.hInstance, IntPtr.Zero);
-        _windowHandle = windowHandle;
-
-        if (!WTSRegisterSessionNotification(_windowHandle, _flags))
+        if (!PInvoke.WTSRegisterSessionNotification(_windowHandle, _flags))
             Marshal.ThrowExceptionForHR(Marshal.GetLastWin32Error());
 
         MessagePump();
@@ -204,9 +188,8 @@ public class SessionChangeHandler : IDisposable
 
     private void MessagePump()
     {
-        var msg = Marshal.AllocHGlobal(Marshal.SizeOf<User32.MSG>());
         int retVal;
-        while ((retVal = User32.GetMessage(msg, IntPtr.Zero, 0, 0)) != 0 &&
+        while ((retVal = PInvoke.GetMessage(out var msg, HWND.Null, 0, 0)) != 0 &&
                !_cancellationTokenSource.Token.IsCancellationRequested)
             if (retVal == -1)
             {
@@ -214,56 +197,56 @@ public class SessionChangeHandler : IDisposable
             }
             else
             {
-                User32.TranslateMessage(msg);
-                User32.DispatchMessage(msg);
+                PInvoke.TranslateMessage(msg);
+                PInvoke.DispatchMessage(msg);
             }
     }
 
-    private unsafe IntPtr WndProc(IntPtr hwnd, User32.WindowMessage msg, void* wParam, void* lParam)
+    private LRESULT WndProc(HWND hwnd, uint msg, WPARAM wParam, LPARAM lParam)
     {
-        if (msg == (User32.WindowMessage)WM_WTSSESSION_CHANGE)
+        if (msg == PInvoke.WM_WTSSESSION_CHANGE)
         {
-            switch ((int)wParam)
+            switch (wParam.Value)
             {
-                case WTS_CONSOLE_CONNECT:
-                    ConsoleConnect?.Invoke((int)lParam);
+                case PInvoke.WTS_CONSOLE_CONNECT:
+                    ConsoleConnect?.Invoke((int)lParam.Value);
                     break;
-                case WTS_CONSOLE_DISCONNECT:
-                    ConsoleDisconnect?.Invoke((int)lParam);
+                case PInvoke.WTS_CONSOLE_DISCONNECT:
+                    ConsoleDisconnect?.Invoke((int)lParam.Value);
                     break;
-                case WTS_REMOTE_CONNECT:
-                    RemoteConnect?.Invoke((int)lParam);
+                case PInvoke.WTS_REMOTE_CONNECT:
+                    RemoteConnect?.Invoke((int)lParam.Value);
                     break;
-                case WTS_REMOTE_DISCONNECT:
-                    RemoteDisconnect?.Invoke((int)lParam);
+                case PInvoke.WTS_REMOTE_DISCONNECT:
+                    RemoteDisconnect?.Invoke((int)lParam.Value);
                     break;
-                case WTS_SESSION_LOGON:
-                    SessionLogon?.Invoke((int)lParam);
+                case PInvoke.WTS_SESSION_LOGON:
+                    SessionLogon?.Invoke((int)lParam.Value);
                     break;
-                case WTS_SESSION_LOGOFF:
-                    SessionLogoff?.Invoke((int)lParam);
+                case PInvoke.WTS_SESSION_LOGOFF:
+                    SessionLogoff?.Invoke((int)lParam.Value);
                     break;
-                case WTS_SESSION_LOCK:
-                    SessionLock?.Invoke((int)lParam);
+                case PInvoke.WTS_SESSION_LOCK:
+                    SessionLock?.Invoke((int)lParam.Value);
                     break;
-                case WTS_SESSION_UNLOCK:
-                    SessionUnlock?.Invoke((int)lParam);
+                case PInvoke.WTS_SESSION_UNLOCK:
+                    SessionUnlock?.Invoke((int)lParam.Value);
                     break;
-                case WTS_SESSION_REMOTE_CONTROL:
-                    SessionRemoteControl?.Invoke((int)lParam);
+                case PInvoke.WTS_SESSION_REMOTE_CONTROL:
+                    SessionRemoteControl?.Invoke((int)lParam.Value);
                     break;
             }
 
-            return IntPtr.Zero;
+            return new LRESULT(0);
         }
 
-        return User32.DefWindowProc(hwnd, msg, (IntPtr)wParam, (IntPtr)lParam);
+        return PInvoke.DefWindowProc(hwnd, msg, wParam, lParam);
     }
 
     private void ReleaseUnmanagedResources()
     {
-        WTSUnRegisterSessionNotification(_windowHandle);
-        User32.DestroyWindow(_windowHandle);
+        PInvoke.WTSUnRegisterSessionNotification(_windowHandle);
+        PInvoke.DestroyWindow(_windowHandle);
     }
 
     private void Dispose(bool disposing)
@@ -276,34 +259,5 @@ public class SessionChangeHandler : IDisposable
     ~SessionChangeHandler()
     {
         Dispose(false);
-    }
-
-    private enum WTS_INFO_CLASS
-    {
-        WTSInitialProgram,
-        WTSApplicationName,
-        WTSWorkingDirectory,
-        WTSOEMId,
-        WTSSessionId,
-        WTSUserName,
-        WTSWinStationName,
-        WTSDomainName,
-        WTSConnectState,
-        WTSClientBuildNumber,
-        WTSClientName,
-        WTSClientDirectory,
-        WTSClientProductId,
-        WTSClientHardwareId,
-        WTSClientAddress,
-        WTSClientDisplay,
-        WTSClientProtocolType,
-        WTSIdleTime,
-        WTSLogonTime,
-        WTSIncomingBytes,
-        WTSOutgoingBytes,
-        WTSIncomingFrames,
-        WTSOutgoingFrames,
-        WTSClientInfo,
-        WTSSessionInfo
     }
 }
