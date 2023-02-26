@@ -17,14 +17,14 @@ var sch = new SessionChangeHandler(true);
 // session locked event (Win + L)
 sch.SessionLock += id =>
 {
-    var username = SessionChangeHandler.GetUsernameBySessionId(id, false);
+    var username = SessionUtilities.GetUsernameBySessionId(id, false);
     Console.WriteLine($"Session ID {id}, user {username} locked");
 };
 
 // session unlocked event
 sch.SessionUnlock += id =>
 {
-    var username = SessionChangeHandler.GetUsernameBySessionId(id, false);
+    var username = SessionUtilities.GetUsernameBySessionId(id, false);
     Console.WriteLine($"Session ID {id}, user {username} unlocked");
 };
 ```
