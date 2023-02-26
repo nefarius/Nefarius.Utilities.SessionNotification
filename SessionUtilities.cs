@@ -22,7 +22,7 @@ public static class SessionUtilities
     {
         string username = "SYSTEM";
 
-        if (PInvoke.WTSQuerySessionInformation(null, (uint)sessionId, WTS_INFO_CLASS.WTSUserName, out PWSTR buffer,
+        if (PInvoke.WTSQuerySessionInformation(HANDLE.Null, (uint)sessionId, WTS_INFO_CLASS.WTSUserName, out PWSTR buffer,
                 out uint strLen) &&
             strLen > 1)
         {
@@ -31,7 +31,7 @@ public static class SessionUtilities
 
             if (prependDomain)
             {
-                if (PInvoke.WTSQuerySessionInformation(null, (uint)sessionId, WTS_INFO_CLASS.WTSDomainName, out buffer,
+                if (PInvoke.WTSQuerySessionInformation(HANDLE.Null, (uint)sessionId, WTS_INFO_CLASS.WTSDomainName, out buffer,
                         out strLen) && strLen > 1)
                 {
                     username = new string(buffer) + "\\" + username;
