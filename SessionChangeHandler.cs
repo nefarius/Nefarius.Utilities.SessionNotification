@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -12,6 +13,8 @@ namespace Nefarius.Utilities.SessionNotification;
 /// <summary>
 ///     Provides an event listener for various session change events.
 /// </summary>
+[SuppressMessage("ReSharper", "EventNeverSubscribedTo.Global")]
+[SuppressMessage("ReSharper", "UnusedMember.Global")]
 public class SessionChangeHandler : IDisposable
 {
     private readonly CancellationTokenSource _cancellationTokenSource = new();
